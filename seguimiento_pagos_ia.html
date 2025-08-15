@@ -34,7 +34,7 @@
         th, td {
             padding: 0.75rem 1rem; /* Espaciado interno */
             text-align: left;
-            border-bottom: 1px solid #e5e7eb; /* Borde inferior ligero */
+            border-bottom: 1px solid #e5f7f9; /* Borde inferior ligero */
         }
         th {
             background-color: #f9fafb; /* Fondo para encabezados */
@@ -307,7 +307,7 @@
                     }
                 };
 
-                const apiKey = ""; // Canvas will provide API key
+                const apiKey = ""; 
                 const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`;
 
                 const response = await fetchWithRetry(apiUrl, {
@@ -351,58 +351,82 @@
             showLoading(true); // Show initial loading indicator
 
             try {
-                // Get app ID and Firebase config from environment variables
-                const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-                const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
-                const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+                // --- SECCIÓN DE CONFIGURACIÓN DE FIREBASE ---
+                // ¡ESTOS VALORES YA HAN SIDO REEMPLAZADOS CON TUS CREDENCIALES REALES!
+                // NO NECESITAS MODIFICAR ESTA SECCIÓN A MENOS QUE CAMBIES TU PROYECTO DE FIREBASE.
+                const firebaseConfig = {
+                  apiKey: "AIzaSyA-Gf2_oEcuFqYB-CfVzd4QtEUxK0AYBz4",
+                  authDomain: "seguimiento-pagos-ia.firebaseapp.com",
+                  projectId: "seguimiento-pagos-ia",
+                  storageBucket: "seguimiento-pagos-ia.firebasestorage.app",
+                  messagingSenderId: "423178235780",
+                  appId: "1:423178235780:web:0e4bb34b47e1baf44f37d1",
+                  measurementId: "G-J9NV12NTXF"
+                };
+
+                // Verifica que la configuración se cargue correctamente
+                console.log("Configuración de Firebase:", firebaseConfig);
+
+                // Para la ruta de la colección en Firestore, usa tu projectId como appId
+                // Esto asegura que cada aplicación tenga su propia colección de datos.
+                const appId = firebaseConfig.projectId;
+                // --- FIN DE LA SECCIÓN DE CONFIGURACIÓN DE FIREBASE ---
+
+
+                // No modifiques lo siguiente, a menos que sepas lo que haces
+                const initialAuthToken = null; // No usamos el token de Canvas fuera de Canvas
 
                 app = initializeApp(firebaseConfig);
                 db = getFirestore(app);
                 auth = getAuth(app);
 
-                // Authenticate user
+                // Autenticar usuario de forma anónima para permitir el acceso a Firestore
+                // Esto es crucial para que la aplicación pueda leer y escribir datos.
                 if (initialAuthToken) {
                     await signInWithCustomToken(auth, initialAuthToken);
                 } else {
-                    await signInAnonymously(auth);
+                    await signInAnonymously(auth); 
                 }
 
-                // Get current user ID
-                userId = auth.currentUser?.uid || crypto.randomUUID(); // Fallback for unauthenticated or missing UID
+                // Obtener el ID del usuario actual (UID de Firebase o un ID aleatorio si es anónimo)
+                userId = auth.currentUser?.uid || crypto.randomUUID(); 
                 userIdDisplay.textContent = `Tu ID de usuario: ${userId}`;
 
-                // Define Firestore collection path for public data
+                // Definir la ruta de la colección de Firestore para datos públicos
+                // Los datos se guardarán en: artifacts/TU_PROJECT_ID/public/data/payments
                 const collectionPath = `artifacts/${appId}/public/data/payments`;
                 paymentsCollectionRef = collection(db, collectionPath);
 
-                // Ensure initial data is present in Firestore if the collection is empty
+                // Asegurarse de que los datos iniciales existan en Firestore si la colección está vacía
                 await ensureInitialData(db, paymentsCollectionRef);
 
-                // Set up real-time listener for payments
+                // Configurar un 'listener' en tiempo real para los pagos
+                // Esto mantiene la tabla actualizada para todos los usuarios.
                 onSnapshot(paymentsCollectionRef, (snapshot) => {
                     const updatedData = [];
                     snapshot.forEach(doc => {
                         updatedData.push(doc.data());
                     });
                     renderTable(updatedData);
-                    showLoading(false); // Hide loading after data is loaded
+                    showLoading(false); // Ocultar el indicador de carga después de que los datos se carguen
                 }, (error) => {
                     console.error("Error al escuchar cambios en Firestore:", error);
                     showMessage("Error al cargar datos en tiempo real: " + error.message, 'error');
                     showLoading(false);
                 });
 
-                // Attach AI processing function to button
+                // Asignar la función de procesamiento de IA al botón
                 document.getElementById('process-ai-btn').addEventListener('click', parseTextWithAI);
 
             } catch (error) {
+                // Captura y muestra cualquier error grave durante la inicialización de la aplicación
                 console.error("Error al inicializar la aplicación:", error);
                 showMessage("Error grave al iniciar la aplicación: " + error.message, 'error');
                 showLoading(false);
             }
         };
 
-        // Expose functions globally for debugging if needed
+        // Exponer funciones globalmente para depuración si es necesario
         window.showMessage = showMessage;
         window.showLoading = showLoading;
     </script>
