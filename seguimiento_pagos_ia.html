@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Seguimiento de Pagos</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f3f4f6; /* Fondo gris claro */
+            display: flex;
+            justify-content: center;
+            align-items: flex-start; /* Alinea al inicio verticalmente */
+            min-height: 100vh;
+            padding: 2rem; /* Espaciado general */
+        }
+        .container {
+            background-color: #ffffff;
+            border-radius: 1rem; /* Esquinas redondeadas */
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05); /* Sombra suave */
+            padding: 2rem;
+            max-width: 1000px; /* Ancho máximo para legibilidad */
+            width: 100%;
+            margin-bottom: 2rem; /* Espacio debajo del contenedor principal */
+        }
+        table {
+            width: 100%;
+            border-collapse: separate; /* Permite bordes redondeados en celdas */
+            border-spacing: 0;
+        }
+        th, td {
+            padding: 0.75rem 1rem; /* Espaciado interno */
+            text-align: left;
+            border-bottom: 1px solid #e5e7eb; /* Borde inferior ligero */
+        }
+        th {
+            background-color: #f9fafb; /* Fondo para encabezados */
+            font-weight: 600; /* Negrita */
+            color: #4b5563; /* Color de texto oscuro */
+            position: sticky; /* Encabezado pegajoso al hacer scroll */
+            top: 0;
+            z-index: 10;
+        }
+        tr:last-child td {
+            border-bottom: none; /* Eliminar borde inferior de la última fila */
+        }
+        .checkbox-container {
+            display: flex;
+            justify-content: center; /* Centrar la casilla de verificación */
+            align-items: center;
+            height: 100%;
+        }
+        input[type="checkbox"] {
+            transform: scale(1.2); /* Aumentar tamaño del checkbox */
+            cursor: pointer;
+        }
+
+        /* Estilos responsivos para tablas */
+        @media (max-width: 768px) {
+            .table-wrapper {
+                overflow-x: auto; /* Habilitar scroll horizontal en pantallas pequeñas */
+            }
+            table {
+                min-width: 600px; /* Asegura un ancho mínimo para la tabla */
+            }
+        }
+        .message-box {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background-color: #fff;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+            z-index: 1000;
+            text-align: center;
+            display: none; /* Hidden by default */
+        }
+        .message-box button {
+            background-color: #4CAF50;
+            color: white;
+            padding: 10px 15px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            margin-top: 15px;
+        }
+        .loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(255, 255, 255, 0.8);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1001;
+            display: none; /* Hidden by default */
+        }
+        .spinner {
+            border: 4px solid rgba(0, 0, 0, 0.1);
+            border-left-color: #3b82f6; /* Tailwind blue-500 */
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+    </style>
+    <!-- Firebase SDKs -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, doc, setDoc, onSnapshot, getDocs } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Global variables for Firebase instances
+        let app;
+        let db;
+        let auth;
+        let userId;
+        let paymentsCollectionRef;
+
+        // Message box utility
+        function showMessage(message, type = 'info', callback = null) {
+            const msgBox = document.getElementById('messageBox');
+            const msgText = document.getElementById('messageText');
+            msgText.textContent = message;
+            msgBox.style.display = 'block';
+
+            const closeButton = document.getElementById('messageBoxClose');
+            closeButton.onclick = () => {
+                msgBox.style.display = 'none';
+                if (callback) callback();
+            };
+        }
+
+        // Loading indicator utility
+        function showLoading(show) {
+            const loadingOverlay = document.getElementById('loading-overlay');
+            if (show) {
+                loadingOverlay.style.display = 'flex';
+            } else {
+                loadingOverlay.style.display = 'none';
+            }
+        }
+
+        // Initial client data for population (if Firestore is empty)
+        const initialClientData = [
+            { id: 629338, name: "MUJICA MENDOZA, BELKIS BEATRIZ", status: "Current", amount: "10,00", isPaid: false },
+            { id: 705605, name: "PRINCIPAL RODRIGUEZ, JUAN RODRIGO", status: "Current", amount: "10,00", isPaid: false },
+            { id: 706048, name: "NUÑEZ FERNANDEZ, RIGOBERTO JOSE", status: "Current", amount: "10,00", isPaid: false },
+            { id: 1238605, name: "BRICEÑO HERNANDEZ, MISHAEL DE LOS ANGELES", status: "Current", amount: "10,00", isPaid: false },
+            { id: 1322864, name: "ARRAEZ, SCARLETH LEONORODALIS", status: "30 Días", amount: "10,00", isPaid: false },
+            { id: 1326336, name: "ARIAS, ALICIA MERCEDES", status: "30 Días", amount: "10,00", isPaid: false },
+            { id: 1326966, name: "PIMENTEL COLOMBO, IRIS DEL CARMEN", status: "Current", amount: "10,00", isPaid: false },
+            { id: 1327009, name: "PERAZA QUINTERO, JOSE ANTONIO", status: "30 Días", amount: "10,00", isPaid: false },
+            { id: 1327067, name: "GONZALEZ GONZALEZ, MARIANGEL JINESKA", status: "30 Días", amount: "10,00", isPaid: false },
+            { id: 1327436, name: "COLMENAREZ, DILCIA", status: "Current", amount: "10,00", isPaid: false },
+            { id: 1327461, name: "CARDENAS RODRIGUEZ, ALEXANDER GASSIER", status: "Current", amount: "10,00", isPaid: false },
+            { id: 1327484, name: "ZAMBRANO, ELIZABETH", status: "Current", amount: "10,00", isPaid: false },
+            { id: 1327530, name: "CARRILLO, FRANCIS IVONNET", status: "Current", amount: "10,00", isPaid: false },
+            { id: 1328922, name: "PEREZ CANELON, GISEL DEL VALLE", status: "Current", amount: "10,00", isPaid: false },
+            { id: 1328940, name: "SUAREZ CORDERO, NOHELIA DEL CARMEN", status: "Current", amount: "10,00", isPaid: false },
+            { id: 1329211, name: "ALVARADO, MARITZA COROMOTO", status: "Current", amount: "10,00", isPaid: false },
+            { id: 1329565, name: "CORRALES, IVONNE KATIUSKA", status: "Current", amount: "10,00", isPaid: false },
+            { id: 1329720, name: "PEREIRA VEGAS, OMAR DE JESUS", status: "Current", amount: "10,00", isPaid: false },
+            { id: 1329728, name: "HERNANDEZ VIVAS, JORGE LUIS", status: "Current", amount: "10,00", isPaid: false },
+            { id: 1330205, name: "GARCIA JIMENEZ, MARIA TERESA", status: "Current", amount: "10,00", isPaid: false },
+            { id: 1330206, name: "RODRIGUEZ PEREZ, LILIBETH MERCEDES", status: "Current", amount: "10,00", isPaid: false },
+            { id: 1330209, name: "RAMIREZ LEAL, ALIX MARIELA", status: "Current", amount: "10,00", isPaid: false },
+            { id: 1330448, name: "MONTERO DAZA, DIXON ALEJANDRO", status: "Current", amount: "10,00", isPaid: false },
+            { id: 1330558, name: "SIRA DELGADO, JEAN CARLOS", status: "Current", amount: "10,00", isPaid: false },
+            { id: 1330625, name: "MASCAREÑO RIVERO, JULIO CESAR", status: "Current", amount: "10,00", isPaid: false },
+            { id: 1330811, name: "PINEDA, BELKIS", status: "Current", amount: "10,00", isPaid: false },
+            { id: 1330836, name: "GAVIDIA DELGADO, YOSEVICT YARISBETH", status: "Current", amount: "10,00", isPaid: false }
+        ];
+
+        // Function to handle fetch requests with exponential backoff
+        async function fetchWithRetry(url, options, retries = 3, delay = 1000) {
+            for (let i = 0; i < retries; i++) {
+                try {
+                    const response = await fetch(url, options);
+                    if (!response.ok) {
+                        if (response.status === 429 && i < retries - 1) {
+                            console.warn(`Too many requests, retrying in ${delay * Math.pow(2, i)}ms...`);
+                            await new Promise(res => setTimeout(res, delay * Math.pow(2, i)));
+                            continue;
+                        }
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    return response;
+                } catch (error) {
+                    if (i < retries - 1) {
+                        console.error(`Fetch attempt ${i + 1} failed: ${error.message}. Retrying...`);
+                        await new Promise(res => setTimeout(res, delay * Math.pow(2, i)));
+                    } else {
+                        throw error;
+                    }
+                }
+            }
+        }
+
+        // Function to ensure initial data exists in Firestore
+        async function ensureInitialData(db, collectionRef) {
+            try {
+                const docCount = (await getDocs(collectionRef)).size;
+                if (docCount === 0) {
+                    console.log("No se encontraron datos en Firestore, inicializando...");
+                    for (const client of initialClientData) {
+                        await setDoc(doc(collectionRef, String(client.id)), client);
+                    }
+                    console.log("Datos iniciales cargados.");
+                }
+            } catch (error) {
+                console.error("Error al asegurar los datos iniciales:", error);
+                showMessage("Error al inicializar los datos: " + error.message, 'error');
+            }
+        }
+
+        // Function to render the table
+        function renderTable(data) {
+            const tbody = document.querySelector('table tbody');
+            tbody.innerHTML = ''; // Clear existing content
+
+            data.sort((a, b) => a.id - b.id); // Sort by ID for consistent display
+
+            data.forEach(client => {
+                const row = document.createElement('tr');
+                const checkboxChecked = client.isPaid ? 'checked' : '';
+                row.innerHTML = `
+                    <td class="whitespace-nowrap">${client.id}</td>
+                    <td class="whitespace-nowrap">${client.name}</td>
+                    <td class="whitespace-nowrap">${client.status}</td>
+                    <td class="whitespace-nowrap">$${client.amount}</td>
+                    <td>
+                        <div class="checkbox-container">
+                            <input type="checkbox" class="form-checkbox h-5 w-5 text-blue-600 rounded" data-client-id="${client.id}" ${checkboxChecked}>
+                        </div>
+                    </td>
+                `;
+                tbody.appendChild(row);
+            });
+
+            // Add event listeners to checkboxes
+            tbody.querySelectorAll('input[type="checkbox"]').forEach(checkbox => {
+                checkbox.addEventListener('change', async (event) => {
+                    const clientId = event.target.dataset.clientId;
+                    const isChecked = event.target.checked;
+                    try {
+                        const clientDocRef = doc(paymentsCollectionRef, clientId);
+                        // Update only isPaid field, merge true ensures other fields are not overwritten
+                        await setDoc(clientDocRef, { isPaid: isChecked }, { merge: true });
+                        console.log(`Pago para cliente ${clientId} actualizado a: ${isChecked}`);
+                    } catch (error) {
+                        console.error("Error al actualizar el estado del pago:", error);
+                        showMessage("Error al guardar el estado del pago: " + error.message, 'error');
+                    }
+                });
+            });
+        }
+
+        // Function to parse text with AI
+        async function parseTextWithAI() {
+            const textArea = document.getElementById('client-data-input');
+            const rawText = textArea.value.trim();
+
+            if (!rawText) {
+                showMessage("Por favor, pega la información de los clientes en el recuadro de texto.", 'info');
+                return;
+            }
+
+            showLoading(true); // Show loading indicator
+
+            try {
+                const promptToLLM = `Por favor, extrae la siguiente información de cada bloque de texto de cliente y formatea los resultados como un array JSON. Cada objeto en el array debe tener las propiedades 'id' (número entero), 'name' (cadena de texto con el nombre completo), 'status' (cadena de texto como 'Current' o '30 Días') y 'amount' (cadena de texto, manteniendo el formato original con coma para decimales si aplica). No incluyas ningún texto adicional, solo el JSON.
+                
+                Texto a procesar:
+                ${rawText}`;
+
+                const payload = {
+                    contents: [{
+                        role: "user",
+                        parts: [{ text: promptToLLM }]
+                    }],
+                    generationConfig: {
+                        responseMimeType: "application/json",
+                        responseSchema: {
+                            type: "ARRAY",
+                            items: {
+                                type: "OBJECT",
+                                properties: {
+                                    "id": { "type": "NUMBER" },
+                                    "name": { "type": "STRING" },
+                                    "status": { "type": "STRING" },
+                                    "amount": { "type": "STRING" }
+                                },
+                                "required": ["id", "name", "status", "amount"]
+                            }
+                        }
+                    }
+                };
+
+                const apiKey = ""; // Canvas will provide API key
+                const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`;
+
+                const response = await fetchWithRetry(apiUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                const result = await response.json();
+
+                if (result.candidates && result.candidates.length > 0 &&
+                    result.candidates[0].content && result.candidates[0].content.parts &&
+                    result.candidates[0].content.parts.length > 0) {
+                    const jsonString = result.candidates[0].content.parts[0].text;
+                    const parsedClients = JSON.parse(jsonString);
+
+                    for (const client of parsedClients) {
+                        // Add or update client in Firestore, defaulting isPaid to false if new
+                        const clientDocRef = doc(paymentsCollectionRef, String(client.id));
+                        await setDoc(clientDocRef, { ...client, isPaid: client.isPaid || false }, { merge: true });
+                    }
+                    showMessage("Datos de clientes procesados y añadidos/actualizados correctamente.", 'success');
+                    textArea.value = ''; // Clear the text area after successful processing
+
+                } else {
+                    showMessage("La IA no pudo extraer los datos de forma estructurada. Por favor, revisa el formato del texto.", 'error');
+                    console.error("AI response structure unexpected:", result);
+                }
+
+            } catch (error) {
+                console.error("Error al procesar con IA:", error);
+                showMessage("Error al procesar los datos con IA: " + error.message, 'error');
+            } finally {
+                showLoading(false); // Hide loading indicator
+            }
+        }
+
+        // Initialize Firebase and set up listeners
+        window.onload = async () => {
+            const userIdDisplay = document.getElementById('user-info');
+            showLoading(true); // Show initial loading indicator
+
+            try {
+                // Get app ID and Firebase config from environment variables
+                const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+                const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+                const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
+                app = initializeApp(firebaseConfig);
+                db = getFirestore(app);
+                auth = getAuth(app);
+
+                // Authenticate user
+                if (initialAuthToken) {
+                    await signInWithCustomToken(auth, initialAuthToken);
+                } else {
+                    await signInAnonymously(auth);
+                }
+
+                // Get current user ID
+                userId = auth.currentUser?.uid || crypto.randomUUID(); // Fallback for unauthenticated or missing UID
+                userIdDisplay.textContent = `Tu ID de usuario: ${userId}`;
+
+                // Define Firestore collection path for public data
+                const collectionPath = `artifacts/${appId}/public/data/payments`;
+                paymentsCollectionRef = collection(db, collectionPath);
+
+                // Ensure initial data is present in Firestore if the collection is empty
+                await ensureInitialData(db, paymentsCollectionRef);
+
+                // Set up real-time listener for payments
+                onSnapshot(paymentsCollectionRef, (snapshot) => {
+                    const updatedData = [];
+                    snapshot.forEach(doc => {
+                        updatedData.push(doc.data());
+                    });
+                    renderTable(updatedData);
+                    showLoading(false); // Hide loading after data is loaded
+                }, (error) => {
+                    console.error("Error al escuchar cambios en Firestore:", error);
+                    showMessage("Error al cargar datos en tiempo real: " + error.message, 'error');
+                    showLoading(false);
+                });
+
+                // Attach AI processing function to button
+                document.getElementById('process-ai-btn').addEventListener('click', parseTextWithAI);
+
+            } catch (error) {
+                console.error("Error al inicializar la aplicación:", error);
+                showMessage("Error grave al iniciar la aplicación: " + error.message, 'error');
+                showLoading(false);
+            }
+        };
+
+        // Expose functions globally for debugging if needed
+        window.showMessage = showMessage;
+        window.showLoading = showLoading;
+    </script>
+</head>
+<body>
+    <div class="container">
+        <h1 class="text-3xl font-bold text-gray-800 mb-6 text-center">Seguimiento de Pagos de Clientes</h1>
+        <div id="user-info" class="text-center text-sm text-gray-500 mb-4"></div>
+
+        <div class="mb-8 p-4 bg-blue-50 rounded-lg border border-blue-200">
+            <h2 class="text-xl font-semibold text-blue-800 mb-3">Pega la Información de Clientes Aquí 👇</h2>
+            <textarea id="client-data-input" rows="10" class="w-full p-3 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 text-gray-700" placeholder="Pega aquí la información de tus clientes.&#10;Ejemplo:&#10;&#10;629338&#10;MUJICA MENDOZA, BELKIS BEATRIZ&#10;Current&#10;10,00&#10;&#10;705605&#10;PRINCIPAL RODRIGUEZ, JUAN RODRIGO&#10;30 Días&#10;10,00"></textarea>
+            <button id="process-ai-btn" class="mt-4 w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded-lg shadow-md transition duration-300 ease-in-out transform hover:scale-105">
+                Procesar con IA y Añadir Clientes
+            </button>
+        </div>
+
+        <div class="table-wrapper">
+            <table>
+                <thead>
+                    <tr>
+                        <th class="rounded-tl-lg">ID de Cliente</th>
+                        <th>Nombre del Cliente</th>
+                        <th>Estado</th>
+                        <th>Monto</th>
+                        <th class="rounded-tr-lg">Pago Procesado</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <!-- Los datos se inyectarán aquí por JavaScript y se actualizarán con Firestore -->
+                </tbody>
+            </table>
+        </div>
+    </div>
+    <!-- Loading Overlay -->
+    <div id="loading-overlay" class="loading-overlay">
+        <div class="spinner"></div>
+        <p class="ml-4 text-lg text-gray-700">Procesando datos con IA...</p>
+    </div>
+    <!-- Message Box -->
+    <div id="messageBox" class="message-box">
+        <p id="messageText"></p>
+        <button id="messageBoxClose">Cerrar</button>
+    </div>
+</body>
+</html>
